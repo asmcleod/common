@@ -25,6 +25,7 @@ import types
 from common.log import Logger
 from common import misc
 import numpy
+np=numpy
 __module_name__=__name__
 
 from matplotlib import pyplot,axes,colors
@@ -1187,7 +1188,7 @@ all_colors=['b','g','r','c','m','y','k','teal','gray','navy']
 def next_color():
     
     global _color_index_
-    color=all_colors[_color_index_%len(colors)]
+    color=all_colors[_color_index_%len(all_colors)]
     _color_index_+=1
     return color
     
@@ -1389,6 +1390,49 @@ def grid_axes(nplots, xstart=0.15, xstop=.85, spacing=0.02,
     pyplot.plot()
     
     return new_axes
+
+def colorline(x, y, z=None, cmap=plt.get_cmap('copper'), \
+              norm=plt.Normalize(0.0, 1.0),
+              linewidth=3, alpha=1.0):
+    """
+    http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
+    http://matplotlib.org/examples/pylab_examples/multicolored_line.html
+    Plot a colored line with coordinates x and y
+    Optionally specify colors in the array z
+    Optionally specify a colormap, a norm function and a line width
+    """
+    
+    import matplotlib.collections as mcoll
+    
+    def make_segments(x, y):
+        """
+        Create list of line segments from x and y coordinates, in the correct format
+        for LineCollection: an array of the form numlines x (points per line) x 2 (x
+        and y) array
+        """
+    
+        points = np.array([x, y]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        return segments
+
+    # Default colors equally spaced on [0,1]:
+    if z is None:
+        z = np.linspace(0.0, 1.0, len(x))
+
+    # Special case if a single number:
+    if not hasattr(z, "__iter__"):  # to check for numerical input -- this is a hack
+        z = np.array([z])
+
+    z = np.asarray(z)
+
+    segments = make_segments(x, y)
+    lc = mcoll.LineCollection(segments, array=z, cmap=cmap, norm=norm,
+                              linewidth=linewidth, alpha=alpha)
+
+    ax = plt.gca()
+    ax.add_collection(lc)
+
+    return lc
 
 #This was shamelessly harvested from:
 #http://adversus.110mb.com/?cat=8
@@ -1696,7 +1740,7 @@ class AxesDefaults(object):
                      ax.yaxis.get_major_ticks()+\
                      ax.xaxis.get_minor_ticks()+\
                      ax.yaxis.get_minor_ticks():
-                t.set_pad(tp**self.scale_factor); t.label1 = t._get_text1()
+                t.set_pad(tp**self.scale_factor); # t.label1 = t._get_text1()
                 
         fs=self.tick_fontsize
         if fs is not None:
@@ -1795,4 +1839,59 @@ class AxesDefaults(object):
         
         ##  Restore original settings ##
         for key in original_settings: setattr(self,key,original_settings[key])
+        
+
+def linecut(width=1,plot=True,pts=None,data=None,\
+            avg_profiles=True,mode='nearest',**kwargs):
+    
+    import numpy as np
+    from scipy import ndimage
+    
+    from_image=False
+    if hasattr(data,'get_array'):
+        im=data
+        from_image=True
+    elif data is None:
+        im=plt.gci()
+        assert im is not None,'No current image, so provide explicit `data`!'
+        from_image=True
+    else:
+        data=np.asarray(data)
+        from_image=False
+        
+    if from_image: data=im.get_array().T #Transpose because axes are swtiched in image
+    
+    if pts is not None: pt1,pt2=pts
+    else:
+        PP=PointPicker(max_pts=2,verbose=True,mousebutton=3)
+        pt1,pt2=PP.get_points()
+    (x1,y1),(x2,y2)=pt1,pt2
+    N=int(numpy.sqrt((x2-x1)**2+(y2-y1)**2))
+    
+    angle=numpy.arctan2(y2-y1,x2-x1)
+    dx,dy=numpy.sin(angle),-numpy.cos(angle)
+    
+    profiles=[]
+    for lineno in range(int(width)):
+        xoffset=(width/2-.5-lineno)*dx
+        yoffset=(width/2-.5-lineno)*dy
+        xi,yi=x1+xoffset,y1+yoffset
+        xf,yf=x2+xoffset,y2+yoffset
+        
+        xs=numpy.linspace(xi,xf,N)
+        ys=numpy.linspace(yi,yf,N)
+        if from_image and plot:
+            X1,X2,Y1,Y2=im.get_extent()
+            dX=(X2-X1)/data.shape[0]
+            Xs=X1+xs*dX
+            dY=(Y2-Y1)/data.shape[1]
+            Ys=Y1+ys*dY
+            im.axes.plot(Xs,Ys,color='k',alpha=.5)
+        
+        profile = ndimage.map_coordinates(data, np.vstack((xs,ys)),\
+                                          mode=mode,**kwargs)
+        profiles.append(profile)
+    
+    if avg_profiles: return numpy.mean(profiles,axis=0)
+    else: return numpy.array(profiles)
     

@@ -507,14 +507,14 @@ try:
                     if axes_set[j]: 
                         if self.debug: Logger.write('\tAxis %i already set, continuing.'%j,\
                                                     format=False)
-                        continue
                     
                     #The conditions to correlate a label with an axis in the present array are:
                     #1. label grid is uniform in all dimensions besides *j*
                     #2. label values vary along dimension *j* OR dimension *j* is 1
                     #These conditions will only confuse multiple axes if they are both length 1, but
                     #distinguishing them in this case is not physically significant anyway.
-                    grid_slice=axis_grid.__getitem__([slice(0,1)]*j+[slice(None)]+[slice(0,1)]*(new_ndim-(j+1)))
+                    slicing=[slice(0,1)]*j+[slice(None)]+[slice(0,1)]*(new_ndim-(j+1))
+                    grid_slice=axis_grid.__getitem__(tuple(slicing))
                     if 0 in grid_slice.shape or len(grid_slice.shape)==0: continue
                     
                     #First condition
@@ -720,8 +720,10 @@ try:
         def __array_finalize__(self,parent):
             
             if self.debug:
-                Logger.write('self: %s, shape: %s, id: %s\n'%(type(self),self.shape,id(self))+\
-                             'parent: %s, shape: %s, id: %s'%(type(parent),parent.shape,id(parent)))
+                try: Logger.write('self: %s, shape: %s, id: %s\n'%(type(self),self.shape,id(self))+\
+                                  'parent: %s, shape: %s, id: %s'%(type(parent),parent.shape,id(parent)))
+                except: Logger.write('self: %s, shape: ?, id: %s\n'%(type(self),id(self))+\
+                                  'parent: %s, shape: ?, id: %s'%(type(parent),id(parent)))
             
             #We are using explicit constructor - *__new__* will take care of default attributes
             if parent is None: return
@@ -947,7 +949,7 @@ try:
             for i in range(self.ndim):
                 slicing=[None for j in range(self.ndim)]
                 slicing[i]=slice(None)
-                axis_grids.append(axes[i][slicing])
+                axis_grids.append(axes[i][tuple(slicing)])
             
             if broadcast: axis_grids=numpy.broadcast_arrays(*axis_grids)
             
@@ -1256,14 +1258,14 @@ try:
                     limits[axis]=slice(0,1)
                     vec_below=sorted[limits]
                     limits=[slice(None) for i in range(sorted.ndim)]; limits[axis]=where_below
-                    result[limits]=vec_below
+                    result[tuple(limits)]=vec_below
                 
                 if where_above.any():
                     limits=[slice(None) for i in range(sorted.ndim)]
                     limits[axis]=slice(sorted.shape[axis]-1,sorted.shape[axis])
                     vec_above=sorted[limits]
                     limits=[slice(None) for i in range(sorted.ndim)]; limits[axis]=where_above
-                    result[limits]=vec_above
+                    result[tuple(limits)]=vec_above
             
             ##Apply new axes##
             new_axes=copy.copy(old_axes)
@@ -1273,32 +1275,27 @@ try:
                 
             output=ArrayWithAxes.__new__(type(self),result,axes=new_axes,axis_names=axis_names)
             
-            if should_squeeze: output=output.squeeze().tolist()
+            if should_squeeze: output=output.squeeze()#.tolist()
             return output
         
-        def interpolate_axes(self,coordinates,order=3,mode='nearest'):
+        def interpolate_axes(self,coordinates,order=3,mode='nearest',**kwargs):
             
             from scipy.ndimage import map_coordinates
             
             #First take coordinates and map them to pixel values#
             sorted_self=self.sort_by_axes()
-            axis_limits=sorted_self.axis_limits
             index_coordinates=[]
             for i in range(self.ndim):
                 
-                axlim=axis_limits[i]
-                coords=numpy.array(coordinates[i])
-                ind_coords=(coords-axlim[0])\
-                           /numpy.float(axlim[1]-axlim[0])\
-                           *self.shape[i]
+                axes_to_indices=AWA(range(sorted_self.shape[i]),\
+                                      axes=[sorted_self.axes[i]])
+                ind_coords=axes_to_indices.interpolate_axis(coordinates[i],\
+                                                            axis=0,**kwargs)
                 index_coordinates.append(ind_coords)
                 
             return map_coordinates(sorted_self,index_coordinates,mode=mode,order=order)
         
         def plot(self,plotter=None,plot_axes=True,labels=True,**kwargs):
-            
-            ##Look up plotter if provided##
-            if isinstance(plotter,str): plotter=getattr(pyplot,plotter)
             
             ##Make sure we've only got finite values in axes##
             #We've got to obtain a view of *self* ordered by axes#
@@ -1320,6 +1317,9 @@ try:
                 except ImportError:
                     Logger.raiseException('Plotting of 1- and 2-D coordinate slices is unavailable because '+\
                                           'the matplotlib module is unavailable!', exception=ImportError)
+                        
+                ##Look up plotter if provided##
+                if isinstance(plotter,str): plotter=getattr(pyplot,plotter)
                     
                 if to_plot.ndim==1:
                     #Prepare kwargs#
@@ -1333,7 +1333,9 @@ try:
                     
                     if plot_axes:
                         result=plotter(axes[0],to_plot,**kwargs)
-                        if labels: pyplot.xlabel(axis_names[0])
+                        if labels:
+                            try: result.axes.set_xlabel(axis_names[0])
+                            except: pyplot.xlabel(axis_names[0])
                     else: result=plotter(to_plot,**kwargs)
                     
                 elif to_plot.ndim==2:
@@ -1379,7 +1381,7 @@ try:
                         ##Special log scale options##
                         if log_scale:
                             if 'ticks' not in cbarkwargs:
-                                cbarkwargs['ticks']=10**numpy.linspace(levmin,levmax,levmax-levmin+1)
+                                cbarkwargs['ticks']=10**numpy.linspace(levmin,levmax,int(levmax-levmin+1))
                                 
                             from matplotlib.ticker import LogFormatter
                             cbarkwargs['format']=LogFormatter(10,labelOnlyBase=labelOnlyBase)
@@ -1388,13 +1390,13 @@ try:
                     try:
                         if not plot_axes: raise ValueError
                         #We require special treatment for imshow#
-                        if plotter is pyplot.imshow:
+                        if plotter.__name__=='imshow':
                             extent=[axes[0].min(),axes[0].max(),\
                                     axes[1].min(),axes[1].max()]
                             result=plotter(to_plot,extent=extent,\
                                             origin='lower',**kwargs)
                         #Also special treatment for 
-                        elif plotter in [pyplot.contour,pyplot.contourf]:
+                        elif plotter.__name__ in ('contour','contourf'):
                             result=plotter(*(axes+[to_plot,lev]),**kwargs)
                         #Guess at call signature
                         else:
@@ -1402,13 +1404,18 @@ try:
                             
                         #Axis labels#
                         if labels:
-                            pyplot.xlabel(axis_names[0])
-                            pyplot.ylabel(axis_names[1])
+                            try:
+                                result.axes.set_xlabel(axis_names[0])
+                                result.axes.set_ylabel(axis_names[1])
+                            except AttributeError:
+                                pyplot.xlabel(axis_names[0])
+                                pyplot.ylabel(axis_names[1])
                         if colorbar:
                             pyplot.colorbar(**cbarkwargs)
                     
                     ##We'll omit axes##
                     except:
+                        raise
                         result=plotter(to_plot,**kwargs)
                         if colorbar: pyplot.colorbar(**cbarkwargs)
                 

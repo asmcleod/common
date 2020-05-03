@@ -1426,6 +1426,7 @@ class Spectrum(baseclasses.ArrayWithAxes):
         
         ####Get spectrum and cast as new type####
         if fourier_transform:
+            if axis is None: axis=0 #We need a default
             
             ###Require axis###
             Logger.raiseException('Frequency axes can not be discerned for *source* '+\

@@ -140,6 +140,58 @@ def _get_minimal_smoothing(N):
     
     return 9.5e-11*N**1.71
 
+#--- Matrix utilities
+
+def orthogonalize(U, eps=1e-15):
+    """
+    Orthogonalizes the matrix U (d x n) using Gram-Schmidt Orthogonalization.
+    If the columns of U are linearly dependent with rank(U) = r, the last n-r columns 
+    will be 0.
+    
+    Args:
+        U (numpy.array): A d x n matrix with columns that need to be orthogonalized.
+        eps (float): Threshold value below which numbers are regarded as 0 (default=1e-15).
+    
+    Returns:
+        (numpy.array): A d x n orthogonal matrix. If the input matrix U's cols were
+            not linearly independent, then the last n-r cols are zeros.
+    
+    Examples:
+    ```python
+    >>> import numpy as np
+    >>> import gram_schmidt as gs
+    >>> gs.orthogonalize(np.array([[10., 3.], [7., 8.]]))
+    array([[ 0.81923192, -0.57346234],
+       [ 0.57346234,  0.81923192]])
+    >>> gs.orthogonalize(np.array([[10., 3., 4., 8.], [7., 8., 6., 1.]]))
+    array([[ 0.81923192 -0.57346234  0.          0.        ]
+       [ 0.57346234  0.81923192  0.          0.        ]])
+    
+    
+    Couresy:
+        Anmol Kabra, Cornell
+        https://gist.github.com/anmolkabra/b95b8e7fb7a6ff12ba5d120b6d9d1937 
+    """
+    
+    import numpy as np
+    import numpy.linalg as la
+    
+    n = len(U[0])
+    # numpy can readily reference rows using indices, but referencing full rows is a little
+    # dirty. So, work with transpose(U)
+    V = U.T
+    for i in range(n):
+        prev_basis = V[0:i]     # orthonormal basis before V[i]
+        coeff_vec = np.dot(prev_basis, V[i].T)  # each entry is np.dot(V[j], V[i]) for all j < i
+        # subtract projections of V[i] onto already determined basis V[0:i]
+        V[i] -= np.dot(coeff_vec, prev_basis).T
+        if la.norm(V[i]) < eps:
+            V[i][V[i] < eps] = 0.   # set the small entries to 0
+        else:
+            V[i] /= la.norm(V[i])
+    return V.T
+
+
 #--- Numerical Quadrature Utilities
 
 def clencurt(N):
@@ -490,9 +542,9 @@ def CrossCorrelate(image1,image2=None,subtract_mean=True,normalize=True,window='
     ys-=numpy.mean(ys)
     
     Gxy=numpy.roll(numpy.roll(Gxy,\
-                              Gxy.shape[0]/2,\
+                              Gxy.shape[0]//2,\
                               axis=0),\
-                   Gxy.shape[1]/2,\
+                   Gxy.shape[1]//2,\
                    axis=1)
     
     Gxy.set_axes([xs,ys])
@@ -658,7 +710,32 @@ class QuickConvolver(object):
     
     Supports constant-value or mirror-image padding of input image to mitigate edge effects.
     
-    `kwargs` are passed through to `kernel_function` or `kernel_function_fourier`."""
+    `kwargs` are passed through to `kernel_function` or `kernel_function_fourier`.
+    
+    EXAMPLE:
+    
+    Consider the image:
+    >>> image=AWA(zeros((101,101)),axes=[linspace(-.5,.5,101)]*2)
+    >>> image[50,50]=1
+    
+    Try the first convolution:
+    >>> kernel_function=lambda x,y: 1/sqrt(x**2+y**2+1e-8**2)
+    >>> qc1=QC(size=(1,1),shape=(101,101),pad_by=.5,kernel_function=kernel_function)
+    >>> result1=qc1(image)
+    >>> result1-=result1.min() #overall offset, while correct, should not be meaningful
+    >>> result1[result1==result1.max()]=0 #point at center is controlled by 1e-8
+    
+    And the second convolution:
+    >>> kernel_function_fourier=lambda kx,ky: 2*pi/sqrt(kx**2+ky**2+1e-8**2)
+    >>> qc2=QC(size=(1,1),shape=(101,101),pad_by=.5,kernel_function_fourier=kernel_function_fourier)
+    >>> result2=qc2(image)
+    >>> result2-=result2.min() #overall offset is controlled by 1e-8
+    
+    And compare:
+    >>> figure();result1.cslice[0].plot(plotter=semilogy)
+    >>> result2.cslice[0].plot()
+    >>> gca().set_xscale('symlog',linthreshx=1e-2)
+    """
     
     def __init__(self,shape=None,
                  size=(1,1),
@@ -718,7 +795,6 @@ class QuickConvolver(object):
         
     def pad_mirror(self,arr,dN,sign=None):
         
-        s=arr.shape
         dNx,dNy=dN
         
         nw_tile=arr[:dNx,:dNy]\
@@ -869,8 +945,8 @@ class QuickConvolver(object):
         kxs=2*np.pi*np.fft.fftfreq(Nx,self.dx)
         kys=2*np.pi*np.fft.fftfreq(Ny,self.dy)
         
-        kxs_grid=self.xs.reshape((len(kxs),1))
-        kys_grid=self.ys.reshape((1,len(kys)))
+        kxs_grid=kxs.reshape((len(kxs),1))
+        kys_grid=kys.reshape((1,len(kys)))
         
         self.kernel_fourier=kernel_function_fourier(kxs_grid,\
                                                     kys_grid,**kwargs)
@@ -1155,7 +1231,7 @@ def InterpolateImageToAffineGrid(image,grid_pts,\
     interpolated=numpy.zeros((Nx,Ny))
     
     regular=False
-    if None in image_xgrid or None in image_ygrid:
+    if image_xgrid is None or image_ygrid is None:
         regular=True
         if isinstance(image,AWA): xs,ys=image.axes
         else:
