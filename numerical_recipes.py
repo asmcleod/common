@@ -583,6 +583,38 @@ def RotationalAverageOfImage(image,Nthetas=200,NRs=200,Rmax=None,**kwargs):
     
     return imageR
 
+def RotationalIntegralOfImage(image,Nthetas=200,NRs=200,Rmax=None,**kwargs):
+    
+    global on_polar,Xs,Ys
+    from scipy.interpolate import griddata
+    from scipy.integrate import trapz
+    
+    if not isinstance(image,baseclasses.AWA):
+        Dx,Dy=image.shape
+        image=baseclasses.AWA(image,axes=[numpy.linspace(-Dx/2.,Dx/2.,Dx),\
+                                          numpy.linspace(-Dy/2.,Dy/2.,Dy)])
+    xs,ys=image.axis_grids
+    
+    Rmax_sugg=numpy.min((numpy.max(xs),numpy.max(ys)))
+    if not Rmax: Rmax=Rmax_sugg
+    else: Rmax=numpy.min((Rmax_sugg,Rmax))
+    
+    Rs,angles=numpy.mgrid[0:Rmax:NRs*1j,0:2*numpy.pi:Nthetas*1j]
+    R_axis=Rs[:,0]
+    angle_axis=angles[0,:]
+    
+    Xs=Rs*numpy.cos(angles); Ys=Rs*numpy.sin(angles)
+    on_polar=griddata(list(zip(xs.flatten(),ys.flatten())),\
+                    image.flatten(),\
+                    list(zip(Xs.flatten(),Ys.flatten())),\
+                    fill_value=0,**kwargs)
+    on_polar=on_polar.reshape((NRs,Nthetas))
+    
+    imageR=baseclasses.AWA(trapz(x=angle_axis,y=Rs*on_polar,axis=1),\
+                           axes=[R_axis],axis_names=[r'$\rho$'])
+    
+    return imageR
+
 def RadialAverageOfImage(image,Nthetas=200,NRs=200,**kwargs):
     
     global on_polar,Xs,Ys
@@ -796,24 +828,25 @@ class QuickConvolver(object):
     def pad_mirror(self,arr,dN,sign=None):
         
         dNx,dNy=dN
+        Nx,Ny=arr.shape
         
         nw_tile=arr[:dNx,:dNy]\
                     [::-1,::-1]*self.pad_mult[0,0]
         n_tile=arr[:,:dNy]\
                     [::1,::-1]*self.pad_mult[0,1]
-        ne_tile=arr[-dNx:,:dNy]\
+        ne_tile=arr[Nx-dNx:,:dNy]\
                     [::-1,::-1]*self.pad_mult[0,2]
                     
         w_tile=arr[:dNx]\
                     [::-1,::1]*self.pad_mult[1,0]
-        e_tile=arr[-dNx:]\
+        e_tile=arr[Nx-dNx:]\
                     [::-1,::1]*self.pad_mult[1,2]
         
-        sw_tile=arr[:dNx,-dNy:]\
+        sw_tile=arr[:dNx,Ny-dNy:]\
                     [::-1,::-1]*self.pad_mult[2,0]
-        s_tile=arr[:,-dNy:]\
+        s_tile=arr[:,Ny-dNy:]\
                     [::1,::-1]*self.pad_mult[2,1]
-        se_tile=arr[-dNx:,-dNy:]\
+        se_tile=arr[Nx-dNx:,Ny-dNy:]\
                     [::-1,::-1]*self.pad_mult[2,2]
         
         return np.hstack((np.vstack((nw_tile,   n_tile,     ne_tile)),\
@@ -823,19 +856,26 @@ class QuickConvolver(object):
     @classmethod
     def remove_pad(cls,im,dN):
         
+        Nx,Ny=im.shape
         dNx,dNy=dN
-        result=im[dNx:-dNx,\
-                  dNy:-dNy]
+        result=im[dNx:Nx-dNx,\
+                  dNy:Ny-dNy]
         
         return result
     
     def set_axes(self,shape,size):
         
         self.shape=shape
-        if self.pad_by>1: self.pad_by=1
         
-        dNx=int(self.pad_by*shape[0])
-        dNy=int(self.pad_by*shape[1])
+        if hasattr(self.pad_by,'__len__'):
+            pad_by_x,pad_by_y=self.pad_by
+        else: pad_by_x=pad_by_y=self.pad_by
+        
+        pad_by_x=np.min((pad_by_x,1))
+        pad_by_y=np.min((pad_by_y,1))
+        
+        dNx=int(pad_by_x*shape[0])
+        dNy=int(pad_by_y*shape[1])
         self.dN=(dNx,dNy)
         self.padded_shape=[N+2*dN for N,dN in zip(shape,\
                                                   (dNx,dNy))]
@@ -950,6 +990,7 @@ class QuickConvolver(object):
         
         self.kernel_fourier=kernel_function_fourier(kxs_grid,\
                                                     kys_grid,**kwargs)
+        self.kernel=None
     
     def __call__(self,im):
         
@@ -973,7 +1014,10 @@ class QuickConvolver(object):
         im_fourier=np.fft.fft(np.fft.fft(self.im_padded,axis=0),axis=1)
         mult=im_fourier*self.kernel_fourier
         
-        result = np.fft.ifft(np.fft.ifft(mult,axis=0),axis=1).real
+        result = np.fft.ifft(np.fft.ifft(mult,axis=0),axis=1)
+        
+        #case to real if neither kernel nor image were complex
+        if not np.iscomplexobj(self.kernel_fourier) and not np.iscomplexobj(im): result=result.real
         
         #Shave off padded zone of output
         if self.pad_by: result=self.remove_pad(result, self.dN)
