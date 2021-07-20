@@ -262,7 +262,7 @@ def GetQuadrature(N=72,xmin=1e-3,xmax=numpy.inf,\
         xs=numpy.array(xs)
         weights=numpy.array(weights)
         #@bug: mpmath 0.17 has a bug whereby TS weights are overly large
-        if quadrature is TS: weights*=3.8/numpy.float(len(weights))
+        if quadrature is TS: weights*=3.85129641897025/numpy.float(len(weights))
         
     else:
         span=xmax-xmin
@@ -270,7 +270,9 @@ def GetQuadrature(N=72,xmin=1e-3,xmax=numpy.inf,\
             raise ValueError('Infinite bounds are not supported for linear quadrature.')
             
         if quadrature=='linear' or quadrature==None:
-            xs=numpy.linspace(xmin,xmax,N)
+            dx=(xmax-xmin)/N
+            
+            xs=(numpy.arange(N)+1/2.)*dx + xmin
             weights=numpy.array([span/float(N)]*int(N))
             
         elif quadrature=='exponential':
@@ -309,6 +311,89 @@ def GetQuadrature(N=72,xmin=1e-3,xmax=numpy.inf,\
             weights*=span/float(N-1)/3.
     
     return xs,weights
+
+#--- Orthonormal bases on an interval
+
+def LegendreBasis(zs,wzs,N=None):
+
+    W = np.diag(wzs)
+    xs = zs - np.mean(zs)
+    xs /= xs.max()
+
+    # --- Build projection basis, normalized w.r.t. W
+    if not N: N = int(len(zs) / 2)
+    cs = [legendre(n + 1)(xs) for n in range(N)]
+    cs = [c - np.sum(wzs * c) / np.sum(wzs) for c in cs]  # remove mean
+    cs = np.array(cs).T
+    N = np.sqrt(np.diag(cs.T @ W @ cs))
+    cs = cs @ np.diag(1 / N)  # normalize
+
+    return cs
+
+def CosineBasis(zs,wzs,N=None):
+
+    W = np.diag(wzs)
+    xs = zs - np.mean(zs)
+    xs /= xs.max()
+
+    # --- Build projection basis, normalized w.r.t. W
+    if not N: N = int(len(zs) / 2)
+    cs=[np.cos(2*np.pi*(n+1)/2*(xs+1)/2) for n in range(N)]
+    cs = [c - np.sum(wzs * c) / np.sum(wzs) for c in cs]  # remove mean
+    cs = np.array(cs).T
+    N = np.sqrt(np.diag(cs.T @ W @ cs))
+    cs = cs @ np.diag(1 / N)  # normalize
+
+    return cs
+
+def WaveletBasis(zs, wzs,N=None):
+
+    W = np.diag(wzs)
+    xs = zs - np.mean(zs)
+    xs /= xs.max()
+
+    # --- Build projection basis, normalized w.r.t. W
+    N=len(xs)
+    cs = np.eye(N)
+    cs = [c - np.sum(wzs * c) / np.sum(wzs) for c in cs]  # remove mean
+    cs = np.array(cs).T
+    N = np.sqrt(np.diag(cs.T @ W @ cs))
+    cs = cs @ np.diag(1 / N)  # normalize
+
+    return cs
+
+def LaguerreBasis(zs, wzs, N=None):
+
+    from scipy.special import laguerre
+    from numpy.linalg import qr
+    W = np.diag(wzs)
+
+    zs=zs-np.min(zs) #should start at 0
+    a = zs.max() / 100 #set the characteristic length scale to 1/100th of the total scale
+    cs = [laguerre(i)(zs / a) * np.exp(-zs / (2 * a)) for i in np.arange(N)]
+    cs = [c - np.sum(wzs * c) / np.sum(wzs) for c in cs]
+    cs = np.array(cs).T
+    N = np.sqrt(np.diag(cs.T @ W @ cs))
+    cs = cs @ np.diag(1 / N)  # normalize
+
+    # orthogonalize and automatically retain normalization
+    from numpy.linalg import qr
+    Q, R = qr(np.diag(np.sqrt(wzs)) @ cs)  # orthonormalize `cs.T @ W @ cs`
+    tol = 1e-9
+    indep = np.abs(np.diag(R)) > tol
+    Q = Q[:, indep]
+
+    # remove mean again, just in case it crept back
+    cs = np.array(np.diag(1 / np.sqrt(wzs)) @ Q).T
+    cs = [c - np.sum(wzs * c) / np.sum(wzs) for c in cs]
+    cs = np.array(cs).T #want column vectors
+
+    return cs
+
+basis_builders=dict(legendre=LegendreBasis,\
+                    cosine=CosineBasis,\
+                    wavelet=WaveletBasis,\
+                    laguerre=LaguerreBasis)
 
 #---Locally Weighted Scatterplot Smoothing
 #Courtesy Ali Yahya
@@ -747,6 +832,7 @@ class QuickConvolver(object):
     EXAMPLE:
     
     Consider the image:
+    >>> from numpy import *
     >>> image=AWA(zeros((101,101)),axes=[linspace(-.5,.5,101)]*2)
     >>> image[50,50]=1
     
@@ -769,6 +855,12 @@ class QuickConvolver(object):
     >>> gca().set_xscale('symlog',linthreshx=1e-2)
     """
     
+    image_pad_mult=np.array([[1,-1,1],
+                             [-1,1,-1],
+                             [1,-1,1]])
+    image_types=('mirror_inv','image','images')
+    mirror_types = ('mirror',)+image_types
+    
     def __init__(self,shape=None,
                  size=(1,1),
                  pad_by=0,
@@ -781,11 +873,16 @@ class QuickConvolver(object):
                  **kwargs):
         
         assert isinstance(pad_with,numbers.Number) \
-                or pad_with in ('mirror',),\
-                'Argument `pad_with`=%s not understood!'%repr(pad_with)
+                or pad_with in self.mirror_types,\
+                'Argument `pad_with`=%s not understood, must be one of %s! or numeric!'\
+                    %(repr(pad_with),self.mirror_types)
+        
+        #--- Turn on "method of images"
+        if pad_with in self.image_types: pad_mult=self.image_pad_mult
         pad_mult=np.asarray(pad_mult,dtype=np.float64)
         assert pad_mult.shape==(3,3),\
                 'Argument `pad_mult`=%s must be a 3x3 array!'%repr(pad_mult)
+                
         self.pad_by=pad_by
         self.pad_with=pad_with
         self.pad_mult=pad_mult
@@ -825,7 +922,7 @@ class QuickConvolver(object):
                           np.vstack((w_tile,    arr,        e_tile)),\
                           np.vstack((sw_tile,   s_tile,     se_tile))))
         
-    def pad_mirror(self,arr,dN,sign=None):
+    def pad_mirror(self,arr,dN):
         
         dNx,dNy=dN
         Nx,Ny=arr.shape
@@ -874,8 +971,8 @@ class QuickConvolver(object):
         pad_by_x=np.min((pad_by_x,1))
         pad_by_y=np.min((pad_by_y,1))
         
-        dNx=int(pad_by_x*shape[0])
-        dNy=int(pad_by_y*shape[1])
+        dNx=int(np.ceil(pad_by_x*shape[0]))
+        dNy=int(np.ceil(pad_by_y*shape[1]))
         self.dN=(dNx,dNy)
         self.padded_shape=[N+2*dN for N,dN in zip(shape,\
                                                   (dNx,dNy))]
@@ -1002,10 +1099,8 @@ class QuickConvolver(object):
         
         # Pad input if desired
         if self.pad_by:
-            if self.pad_with=='mirror':
+            if self.pad_with in self.mirror_types:
                 im_padded=self.pad_mirror(im, self.dN)
-            elif self.pad_with=='mirror_inv':
-                im_padded=self.pad_mirror(im, self.dN,sign=-1)
             else:
                 im_padded=self.pad_const(im, self.dN, self.pad_with)
             self.im_padded=im_padded
@@ -1731,3 +1826,57 @@ def zermuller_find_roots(f, xinit, ztol= 1.0e-5, ftol=1.0e-5, maxiter=1000, want
  
     maxiter = nmaxiter
     return roots
+
+def nearestPD(A):
+    """Find the nearest positive-definite matrix to input
+
+    A Python/Numpy port of John D'Errico's `nearestSPD` MATLAB code [1], which
+    credits [2].
+
+    [1] https://www.mathworks.com/matlabcentral/fileexchange/42885-nearestspd
+
+    [2] N.J. Higham, "Computing a nearest symmetric positive semidefinite
+    matrix" (1988): https://doi.org/10.1016/0024-3795(88)90223-6
+    """
+
+    from numpy import linalg as la
+
+    def isPD(B):
+        """Returns true when input is positive-definite, via Cholesky"""
+        try:
+            _ = la.cholesky(B)
+            return True
+        except la.LinAlgError:
+            return False
+
+
+    B = (A + A.T) / 2
+    _, s, V = la.svd(B)
+
+    H = np.dot(V.T, np.dot(np.diag(s), V))
+
+    A2 = (B + H) / 2
+
+    A3 = (A2 + A2.T) / 2
+
+    if isPD(A3):
+        return A3
+
+    spacing = np.spacing(la.norm(A))
+    # The above is different from [1]. It appears that MATLAB's `chol` Cholesky
+    # decomposition will accept matrixes with exactly 0-eigenvalue, whereas
+    # Numpy's will not. So where [1] uses `eps(mineig)` (where `eps` is Matlab
+    # for `np.spacing`), we use the above definition. CAVEAT: our `spacing`
+    # will be much larger than [1]'s `eps(mineig)`, since `mineig` is usually on
+    # the order of 1e-16, and `eps(1e-16)` is on the order of 1e-34, whereas
+    # `spacing` will, for Gaussian random matrixes of small dimension, be on
+    # othe order of 1e-16. In practice, both ways converge, as the unit test
+    # below suggests.
+    I = np.eye(A.shape[0])
+    k = 1
+    while not isPD(A3):
+        mineig = np.min(np.real(la.eigvals(A3)))
+        A3 += I * (-mineig * k**2 + spacing)
+        k += 1
+
+    return A3

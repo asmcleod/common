@@ -1393,7 +1393,7 @@ def grid_axes(nplots, xstart=0.15, xstop=.85, spacing=0.02,
 
 def colorline(x, y, z=None, cmap=plt.get_cmap('copper'), \
               norm=plt.Normalize(0.0, 1.0),
-              linewidth=3, alpha=1.0):
+              linewidth=3, alpha=1.0, **kwargs):
     """
     http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
     http://matplotlib.org/examples/pylab_examples/multicolored_line.html
@@ -1427,12 +1427,24 @@ def colorline(x, y, z=None, cmap=plt.get_cmap('copper'), \
 
     segments = make_segments(x, y)
     lc = mcoll.LineCollection(segments, array=z, cmap=cmap, norm=norm,
-                              linewidth=linewidth, alpha=alpha)
+                              linewidth=linewidth, alpha=alpha, **kwargs)
 
     ax = plt.gca()
     ax.add_collection(lc)
 
     return lc
+
+def nice_colorbar(mappable,where='right',size='5%',pad=.05):
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    import matplotlib.pyplot as plt
+    last_axes = plt.gca()
+    ax = mappable.axes
+    fig = ax.figure
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes(where, size=size, pad=pad)
+    cbar = fig.colorbar(mappable, cax=cax)
+    plt.sca(last_axes)
+    return cbar
 
 #This was shamelessly harvested from:
 #http://adversus.110mb.com/?cat=8

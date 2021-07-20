@@ -698,11 +698,49 @@ class DeluxeLogger(logging.Logger):
     ##After all this toying, we have to overload *findCaller* so that 
     #it doesn't think the current module file qualifies as a caller##
     #2018.06.19 - Added keyword argument `stack_info` for compatibility with python3 version of `logging`
-    def findCaller(self,stack_info=False):
+    #2020.07.30 - Added keyword argument `stacklevel` for compatability with python3.8 version of `logging`
+    def findCaller(self, stack_info=False, stacklevel=1):
         """
         Find the stack frame of the caller so that we can note the source
         file name, line number and function name.
         """
+        f = logging.currentframe()
+        #On some versions of IronPython, currentframe() returns None if
+        #IronPython isn't run with -X:Frames.
+        if f is not None:
+            f = f.f_back
+        orig_f = f
+        while f and stacklevel > 1:
+            f = f.f_back
+            stacklevel -= 1
+        if not f:
+            f = orig_f
+        rv = "(unknown file)", 0, "(unknown function)", None
+        while hasattr(f, "f_code"):
+            co = f.f_code
+            filename = os.path.normcase(co.co_filename)
+            if filename in  [logging._srcfile,_srcfile]: #This is the line that was changed, frames in this module will be disregarded
+                f = f.f_back
+                continue
+            sinfo = None
+            if stack_info:
+                sio = io.StringIO()
+                sio.write('Stack (most recent call last):\n')
+                traceback.print_stack(f, file=sio)
+                sinfo = sio.getvalue()
+                if sinfo[-1] == '\n':
+                    sinfo = sinfo[:-1]
+                sio.close()
+            rv = (co.co_filename, f.f_lineno, co.co_name, sinfo)
+            break
+        return rv
+    
+    """
+    def findCaller(self,stack_info=False):
+        "
+        Find the stack frame of the caller so that we can note the source
+        file name, line number and function name.
+        "
         f = logging.currentframe()
         #On some versions of IronPython, currentframe() returns None if
         #IronPython isn't run with -X:Frames.
@@ -718,6 +756,7 @@ class DeluxeLogger(logging.Logger):
             rv = (filename, f.f_lineno, co.co_name)
             break
         return rv
+    """
     
     def write(self,*args,**kwargs):
         """An alias for *self.log(level,msg,**kwargs)*, exposing the ability
