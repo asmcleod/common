@@ -23,6 +23,61 @@ except ImportError:
     array=list
 __module_name__=__name__
 
+class Autopickle(object):
+
+    def __init__(self,worker, savepath):
+
+        self._worker=worker
+        self._savepath=savepath
+        self._result=None
+
+        import functools
+        functools.update_wrapper(self, worker)
+
+    def save(self,overwrite=False):
+
+        # In case we should not overwrite
+        if os.path.exists(self._savepath) and not overwrite: return
+
+        import pickle
+        with open(self._savepath,'wb') as f:
+            pickle.dump(self._result,f)
+
+    def load(self):
+
+        import pickle
+        with open(self._savepath, 'rb') as f:
+            self._result = pickle.load(f)
+
+    def compute(self,*args,**kwargs):
+
+        self._result = self._worker(*args,**kwargs)
+
+    def get_result(self): return self._result
+
+    def __call__(self,*args,
+                 recompute=False,save=True,
+                 reload=False,overwrite=False,
+                 **kwargs):
+
+        save_exists=os.path.exists(self._savepath)
+
+        if save_exists:
+            if self.get_result() is None or reload: self.load()
+
+        # If we still have nothing, compute and save
+        if self.get_result() is None or recompute:
+            self.compute(*args,**kwargs)
+            self.save(overwrite=overwrite)
+
+        return self.get_result()
+
+def autopickle(savepath):
+
+    def decorator(func): return Autopickle(func,savepath)
+
+    return decorator
+
 def unpickle_legacy(filename):
     
     import pickle

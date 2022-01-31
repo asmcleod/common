@@ -227,15 +227,16 @@ class ClenshawCurtis(QuadratureRule):
 CC=ClenshawCurtis(fp)
 TS=TanhSinh(fp)
 GL=GaussLegendre(fp)
+quadratures_by_key={'CC':CC,'GL':GL,'TS':TS}
 prec=4
-#GL quadrature seems to work A LOT better, 
-#it's as though the middle values of the kernel
-#are important, and TS under-samples them...
 
 def GetQuadrature(N=72,xmin=1e-3,xmax=numpy.inf,\
                   quadrature=GL,**kwargs):
     
     global xs,weights
+
+    if quadrature in quadratures_by_key:
+        quadrature=quadratures_by_key[quadrature]
     
     if hasattr(quadrature,'calc_nodes'):
         
@@ -499,14 +500,20 @@ def ParameterFit(xs,ys,model_func,params0,\
         for limit in limit_pair:
             if not np.isinf(limit): window_lims.append(limit)
         all_window_lims.append(window_lims)
-        
+
     def window_func(params):
-        
-        window=1
-        for i,param in enumerate(params):
-            for window_lim in all_window_lims[i]:
-                window*=np.abs((params0[i]-window_lim)/(param-window_lim))**window_exp
-        
+
+        window = 1
+        for i, param in enumerate(params):
+            these_window_lims = all_window_lims[i]
+            try:
+                span = np.ptp(these_window_lims)
+                x1 = (param - np.min(these_window_lims)) / (span / window_exp)
+                x2 = (np.max(these_window_lims) - param) / (span / window_exp)
+                g = (1 + np.tanh(x1)) * (1 + np.tanh(x2))
+                window *= 1 / g
+            except: pass #If one limit was infinity, ignore
+
         return window
     
     #Define the form of the error function#
