@@ -924,7 +924,7 @@ try:
             #return list(grid.__getitem__([slice(0,dim) for dim in self.shape]))
             
             grid=numpy.ogrid
-            grids=grid.__getitem__([slice(0,dim) for dim in self.shape])
+            grids=grid.__getitem__(tuple([slice(0,dim) for dim in self.shape]))
             
             if broadcast: grids=numpy.broadcast_arrays(*grids)
             
@@ -1161,7 +1161,7 @@ try:
             
             slices=self.coordinates_to_slices(*coord_entries,**kwargs)
             
-            return self.__getitem__(slices)
+            return self.__getitem__(tuple(slices))
         
         def sort_by_axes(self):
             
@@ -1180,7 +1180,7 @@ try:
             ordered=self.view()
             for i in range(len(ordered_index_sets)):
                 ordering_slice=[slice(None)]*i+[ordered_index_sets[i]]
-                ordered=ordered.__getitem__(ordering_slice)
+                ordered=ordered.__getitem__(tuple(ordering_slice))
                 
             ##Add ordered axes##
             ordered.set_axes(axes=ordered_axes,verbose=False)
@@ -1306,7 +1306,7 @@ try:
                 axes=to_plot.get_axes()
                 for i in range(len(axes)):
                     slice_entry=[slice(None)]*i+[numpy.isfinite(axes[i])]
-                    to_plot=to_plot.__getitem__(slice_entry)
+                    to_plot=to_plot.__getitem__(tuple(slice_entry))
             
                 ##Get Axes##
                 axes=to_plot.get_axes()
