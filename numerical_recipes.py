@@ -531,6 +531,67 @@ def ParameterFit(xs,ys,model_func,params0,\
     
     return leastsq(error_func,params0,args=args,**kwargs)
 
+def PiecewiseLinearFit(x,y,nbreakpoints=1,**kwargs):
+
+    global conditions,slopes,model_func,functions
+    assert isinstance(nbreakpoints,int) and nbreakpoints>=1
+
+    # params will of length `nbreakpoints + 1+(nbreakpoints+1)` for breakpoint position plus one intercept and slopes for each segment
+    x0=np.min(x)
+    Dx = np.max(x)-np.min(x)
+    dx = Dx/(nbreakpoints+1)
+    y0=np.mean(y)
+
+    params = x0 + dx*(1+np.arange(nbreakpoints))
+    params = np.append(params, [y0] )
+    params = np.append(params, [0]*(nbreakpoints+1) )
+
+    class Linear(object):
+
+        def __init__(self,m,x0,y0):
+            self.m=m
+            self.x0=x0
+            self.y0=y0
+
+        def __call__(self,x): return self.m*(x-self.x0)+self.y0
+
+    def model_func(x,params):
+
+        global conditions,slopes,functions
+        breakpoints = params[:nbreakpoints]
+        b = params[nbreakpoints]
+        slopes = params[nbreakpoints+1:]
+
+        #First segment
+        conditions = [x<breakpoints[0]]
+        m=slopes[0]
+        functions = [Linear(m,0,b)]
+
+        #Interior segments (if any)
+        for i in range(nbreakpoints-1):
+
+            x1,x2=breakpoints[i:i+2]
+            condition = (x>=x1)*(x<x2)
+            conditions.append(condition)
+
+            y0 = functions[-1](x1)
+            m = slopes[i+1]
+            functions.append(Linear(m,x1,y0))
+
+        #Last segment
+        x1=breakpoints[-1]
+        conditions.append(x >= x1)
+        y0 = functions[-1](x1)
+        m = slopes[-1]
+        functions.append(Linear(m,x1,y0))
+
+        return np.piecewise(x,conditions,functions)
+
+    params = ParameterFit(x,y,model_func,params,**kwargs)[0]
+
+    return model_func(x,params),params
+
+
 #--- Image Modification Utilities
 
 def smooth(x,window_len=4,window='blackman',mode='nearest',axis=-1):

@@ -32,6 +32,7 @@ from matplotlib import pyplot,axes,colors
 from matplotlib import pyplot as plt
 
 #---- Colormaps stored in files
+cmap_data= {}
     
 cdict = {'red':  ((0.0, 0.0, 0.0),
                    (0.35,0.0, 0.0),
@@ -53,7 +54,8 @@ cdict = {'red':  ((0.0, 0.0, 0.0),
                    (0.65,0.0, 0.0),
                    (1.0, 0.0, 0.0))
         }
-pyplot.register_cmap(name='BWR', data=cdict)
+name='BWR'
+cmap_data[name]=cdict
 
 cdict = {'red':  ((0.0, 0.0, 0.0),
                    (0.2,0.0, 0.0),
@@ -75,7 +77,8 @@ cdict = {'red':  ((0.0, 0.0, 0.0),
                    (0.8,0.0, 0.0),
                    (1.0, 0.0, 0.0))
         }
-pyplot.register_cmap(name='BWR2', data=cdict)
+name='BWR2'
+cmap_data[name]=cdict
 
 cdict = {'blue':  ((0.0, 0.0, 0.0),
                    (0.2,0.0, 0.0),
@@ -97,7 +100,12 @@ cdict = {'blue':  ((0.0, 0.0, 0.0),
                    (0.8,0.0, 0.0),
                    (1.0, 0.0, 0.0))
         }
-pyplot.register_cmap(name='BWR2_r', data=cdict)
+name='BWR2_r'
+cmap_data[name]=cdict
+
+for name in cmap_data:
+    cmap=colors.LinearSegmentedColormap(name,cmap_data[name])
+    plt.register_cmap(name=name,cmap=cmap)
 
 ##Load all colormaps found in `common/colormaps` directory##
 # The format of these files should be 4 columns:  x, r, g, b
@@ -106,24 +114,29 @@ cmap_dir=os.path.join(os.path.dirname(__file__),'colormaps')
 for file in os.listdir(cmap_dir):
     if file.endswith('.csv'):
         cmap_name=re.sub('\.csv$','',file)
-        cmap_mat=misc.extract_array(open(os.path.join(cmap_dir,file)))
-        x=cmap_mat[:,0]; r=cmap_mat[:,1]; g=cmap_mat[:,2]; b=cmap_mat[:,3]
-        
-        rtuples=numpy.vstack((x,r,r)).transpose().tolist()
-        gtuples=numpy.vstack((x,g,g)).transpose().tolist()
-        btuples=numpy.vstack((x,b,b)).transpose().tolist()
-        cdit={'red':rtuples,'green':gtuples,'blue':btuples}
-        
-        pyplot.register_cmap(name=cmap_name,data=cdit)
-        
-        r=r[::-1]; g=g[::-1]; b=b[::-1]
-        rtuples_r=numpy.vstack((x,r,r)).transpose().tolist()
-        gtuples_r=numpy.vstack((x,g,g)).transpose().tolist()
-        btuples_r=numpy.vstack((x,b,b)).transpose().tolist()
-        cdit_r={'red':rtuples_r,'green':gtuples_r,'blue':btuples_r}
-        
-        pyplot.register_cmap(name=cmap_name+'_r',data=cdit_r)
-        Logger.write('Registered colormaps "%s" and "%s_r"...'%((cmap_name,)*2))
+        try:
+            cmap_mat=misc.extract_array(open(os.path.join(cmap_dir,file)))
+            x=cmap_mat[:,0]; r=cmap_mat[:,1]; g=cmap_mat[:,2]; b=cmap_mat[:,3]
+
+            rtuples=numpy.vstack((x,r,r)).transpose().tolist()
+            gtuples=numpy.vstack((x,g,g)).transpose().tolist()
+            btuples=numpy.vstack((x,b,b)).transpose().tolist()
+            cdict={'red':rtuples,'green':gtuples,'blue':btuples}
+            cmap=colors.LinearSegmentedColormap(cmap_name,cdict)
+            pyplot.register_cmap(name=cmap_name,cmap=cmap)
+
+            r=r[::-1]; g=g[::-1]; b=b[::-1]
+            rtuples_r=numpy.vstack((x,r,r)).transpose().tolist()
+            gtuples_r=numpy.vstack((x,g,g)).transpose().tolist()
+            btuples_r=numpy.vstack((x,b,b)).transpose().tolist()
+            cdit_r={'red':rtuples_r,'green':gtuples_r,'blue':btuples_r}
+            cmap_name_r=cmap_name+'_r'
+            cmap=colors.LinearSegmentedColormap(cmap_name_r,cdict)
+            pyplot.register_cmap(name=cmap_name_r,cmap=cmap)
+
+            Logger.write('Registered colormaps "%s" and "%s"...'%((cmap_name,cmap_name_r)))
+
+        except: Logger.warning('Could not register cmap "%s"!'%cmap_name)
 
 # ----- Plotting functions
 
