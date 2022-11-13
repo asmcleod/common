@@ -1441,7 +1441,7 @@ class Spectrum(baseclasses.ArrayWithAxes):
             
             ###See if we need to interpolate for homogeneous *axis*###
             axis=axis%source.ndim
-            interpolate_axis=False
+            do_interpolate_axis=False
             if not isinstance(source,baseclasses.ArrayWithAxes):
                 source=baseclasses.ArrayWithAxes(source,verbose=False)
             else:
@@ -1450,12 +1450,12 @@ class Spectrum(baseclasses.ArrayWithAxes):
                 time_values=source.axes[axis]
                 diff=numpy.diff(time_values)
                 inhomogeneous=(numpy.abs(diff-diff[0])/diff[0]>=1e-5)
-                if True in inhomogeneous: interpolate_axis=True
+                if True in inhomogeneous: do_interpolate_axis=True
             axes=source.axes
             axis_names=source.axis_names
             
             ###Interpolate axis to equi-spaced points if homogeneity of axis is uncertain###
-            if interpolate_axis:
+            if do_interpolate_axis:
                 try: from scipy.interpolate import interp1d
                 except ImportError: Logger.raiseException('The module <scipy> is required for interpolation to homogeneous '+\
                                                           'samples along *axis*.',exception=ImportError)
@@ -1781,7 +1781,7 @@ class Spectrum(baseclasses.ArrayWithAxes):
             
         return geometric_integral
     
-    def get_inverse(self,axis=None,n=None,origin=None,offset=None):
+    def get_inverse(self,axis=None,n=None,x0=None):
         """
         `offset` will be applied to the axis values along the inverted dimension.
         
@@ -1818,18 +1818,25 @@ class Spectrum(baseclasses.ArrayWithAxes):
                                     'or axis name.', exception=ValueError)
         
         ###First interpolate back to FFT-consistent axis values###
-        freq_window=axes[axis].max()-axes[axis].min()
+        fplus = axes[axis].max()
+        fminus = axes[axis].min()
+        freq_window = 2*numpy.max( (fplus, -fminus) ) #-axes[axis].min()
         df=numpy.min(numpy.abs(numpy.diff(axes[axis])))
         nsamples=int(numpy.round(freq_window/df))+1
         
         if n is None: n=nsamples
         
         dt=1/float(freq_window)*nsamples/float(n) #duration of each sampling in putative inverse transform
-        freqs=sorted(numpy.fft.fftfreq(n=n,d=dt)) #duration specified as a window per-sample
-        fftconsistent_self=self.interpolate_axis(freqs,axis=axis,fill_value=0,bounds_error=False)
-        
-        ##Just to see how the FFT-consistent version looks
-        #self.fftconsistent_self=fftconsistent_self
+        freqs=sorted(numpy.fft.fftfreq(n=n,d=dt)) #duration specified as a window per-sample; nyquist is `f_n=1/(2*dt)`
+        freqs=numpy.array(freqs)
+        fftconsistent_self = self.interpolate_axis(freqs, axis=axis,kind='slinear',
+                                                   fill_value=0,bounds_error=False)
+
+        ### Maintain same spectral power in spite of interpolation
+        pow1 = self.power.integrate_axis(axis=axis)
+        pow2 = fftconsistent_self.power.integrate_axis(axis=axis)
+        fftconsistent_self *= numpy.sqrt( pow1 / pow2 )
+        self.fftconsistent_self=fftconsistent_self
         
         ###Pack up into "standard" fft packing###
         shifted_self=numpy.fft.ifftshift(fftconsistent_self,axes=[axis])
@@ -1840,13 +1847,13 @@ class Spectrum(baseclasses.ArrayWithAxes):
         if self.is_per_sample(): shifted_self*=numpy.sqrt(nsamples)
         
         ###Acquire inverse spectrum###
-        if offset is None: offset=0
         inverse=numpy.fft.ifft(shifted_self,axis=axis,n=n)
-        positions=numpy.linspace(0,n*dt,n)+offset
-        if origin is not None:
-            offset=origin-positions[0] #if `offset` becomes positive, `mean_pos` is too small and positions need to be up-shifted
-            nshift=int(offset/dt)# if desired desired origin is more positive than minimum position, offset is positive and roll forward
-            inverse=numpy.roll(inverse,nshift,axis=axis)
+        positions=numpy.linspace(0,n*dt,n)
+        if x0 is not None:
+            # if we want x0>0, we roll inverse *backwards* by `x0/dt`
+            N=int(numpy.round(x0/dt)); x0=N*dt
+            positions += x0
+            inverse = numpy.roll(inverse,-N,axis=axis)
             
         ###Re-assign axes and axis names###
         axes=self.get_axes()
