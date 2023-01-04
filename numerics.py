@@ -194,8 +194,8 @@ def change_basis_matrix(from_basis=numpy.eye(3),\
             to_basis=numpy.matrix(to_basis).squeeze()
             
             ##Check that we have square matrices (arrays)##
-            if not ((from_basis.ndim is 2) and (from_basis.shape[-1] is from_basis.shape[0])) \
-               and not ((to_basis.ndim is 2) and (to_basis.shape[-1] is to_basis.shape[0])): raise ValueError
+            if not ((from_basis.ndim == 2) and (from_basis.shape[-1] is from_basis.shape[0])) \
+               and not ((to_basis.ndim == 2) and (to_basis.shape[-1] is to_basis.shape[0])): raise ValueError
                
             ##Check that we have non-singular matrices (valid bases)##
             from_basis.I; to_basis.I
@@ -224,13 +224,13 @@ def change_vector_basis(vector,from_basis=numpy.eye(3),\
             vector=numpy.matrix(vector).squeeze()
             
             #Check shape#
-            if not vector.ndim is 1 and vector.shape[0] in (2,3):
+            if not vector.ndim == 1 and vector.shape[0] in (2,3):
                 raise ValueError
             
         except: Logger.raiseException('*vector* must be a matrix-representable list of 2 or 3 coordinates.')
     
     #Pad to three dimensions if necessary#
-    if vector.shape[0] is 2: vector=numpy.matrix(list(vector)+[0])
+    if vector.shape[0] == 2: vector=numpy.matrix(list(vector)+[0])
     vector=vector.T
     result=(change_basis_matrix(from_basis,to_basis,optimize=optimize)*vector).T
     
@@ -1348,7 +1348,7 @@ def convolve_periodically_new(in1,in2):
 def _downcasting_spectrum_method_(old_method):
     
     ##We don't want to redefine *view*, since redefinitions call *view*##
-    if old_method.__name__ is 'view': return old_method
+    if old_method.__name__ == 'view': return old_method
     
     def new_method(*args,**kwargs):
         
@@ -1820,7 +1820,8 @@ class Spectrum(baseclasses.ArrayWithAxes):
         ###First interpolate back to FFT-consistent axis values###
         fplus = axes[axis].max()
         fminus = axes[axis].min()
-        freq_window = 2*numpy.max( (fplus, -fminus) ) #-axes[axis].min()
+        #freq_window = 2*numpy.max( (fplus, -fminus) ) #-axes[axis].min()
+        freq_window = fplus - fminus
         df=numpy.min(numpy.abs(numpy.diff(axes[axis])))
         nsamples=int(numpy.round(freq_window/df))+1
         
@@ -1829,7 +1830,8 @@ class Spectrum(baseclasses.ArrayWithAxes):
         dt=1/float(freq_window)*nsamples/float(n) #duration of each sampling in putative inverse transform
         freqs=sorted(numpy.fft.fftfreq(n=n,d=dt)) #duration specified as a window per-sample; nyquist is `f_n=1/(2*dt)`
         freqs=numpy.array(freqs)
-        fftconsistent_self = self.interpolate_axis(freqs, axis=axis,kind='slinear',
+
+        fftconsistent_self = self.interpolate_axis(freqs, axis=axis,kind='nearest',
                                                    fill_value=0,bounds_error=False)
 
         ### Maintain same spectral power in spite of interpolation

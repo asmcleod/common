@@ -469,8 +469,9 @@ def weights_matrix(x_query, X, alpha):
 
 def ParameterFit(xs,ys,model_func,params0,\
                  limits=None,relative_error=False,\
-                 verbose=False,error_exp=2,window_exp=.2,\
+                 verbose=False,error_exp=2,limit_sharpness=10,\
                  args=(),**kwargs):
+    """Increasing `limit_sharpness` will impose steeper penalties for parameters values close to or exceeding `limits`. """
     
     import numpy as np
     from scipy.optimize import leastsq
@@ -501,18 +502,31 @@ def ParameterFit(xs,ys,model_func,params0,\
             if not np.isinf(limit): window_lims.append(limit)
         all_window_lims.append(window_lims)
 
+    global window_func
+
     def window_func(params):
 
         window = 1
-        for i, param in enumerate(params):
-            these_window_lims = all_window_lims[i]
+        for i, x in enumerate(params):
+
+            lims=all_window_lims[i]
+            if not lims or not np.isfinite(lims).all(): continue
+
+            x1, x2 = lims
+            x0 = np.mean((x1, x2))
+            dx = np.ptp((x1, x2))
             try:
-                span = np.ptp(these_window_lims)
-                x1 = (param - np.min(these_window_lims)) / (span / window_exp)
-                x2 = (np.max(these_window_lims) - param) / (span / window_exp)
-                g = (1 + np.tanh(x1)) * (1 + np.tanh(x2))
-                window *= 1 / g
-            except: pass #If one limit was infinity, ignore
+                s = dx / limit_sharpness
+                X1 = (x - x1) / s
+                X2 = (x - x2) / s
+                X01 = (x0 - x1) / s
+                X02 = (x0 - x2) / s
+                g = (np.tanh(X1) - np.tanh(X2))
+                g0 = (np.tanh(X01) - np.tanh(X02))
+                # g /= (np.tanh(x0)+np.tanh(x0))
+                window *= g0 / g
+            except:
+                pass  # If one limit was infinity, ignore
 
         return window
     
