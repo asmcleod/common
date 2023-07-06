@@ -62,7 +62,7 @@ class Autopickle(object):
 
         save_exists=os.path.exists(self._savepath)
 
-        if save_exists:
+        if save_exists and not recompute:
             if self.get_result() is None or reload: self.load()
 
         # If we still have nothing, compute and save

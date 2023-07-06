@@ -387,7 +387,7 @@ try:
         def inheriting_operator(self,*args,**kwargs):
             
             ##Obtain result of bound method##
-            try: result=ndarray_operator(self,*args**kwargs)
+            try: result=ndarray_operator(self,*args,**kwargs)
             #Perhaps kwargs are not accepted#
             except TypeError: result=ndarray_operator(self,*args)
             
@@ -1256,14 +1256,14 @@ try:
                 if where_below.any():
                     limits=[slice(None) for i in range(sorted.ndim)]
                     limits[axis]=slice(0,1)
-                    vec_below=sorted[limits]
+                    vec_below=sorted[tuple(limits)]
                     limits=[slice(None) for i in range(sorted.ndim)]; limits[axis]=where_below
                     result[tuple(limits)]=vec_below
                 
                 if where_above.any():
                     limits=[slice(None) for i in range(sorted.ndim)]
                     limits[axis]=slice(sorted.shape[axis]-1,sorted.shape[axis])
-                    vec_above=sorted[limits]
+                    vec_above=sorted[tuple(limits)]
                     limits=[slice(None) for i in range(sorted.ndim)]; limits[axis]=where_above
                     result[tuple(limits)]=vec_above
             

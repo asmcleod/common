@@ -1822,7 +1822,9 @@ class Spectrum(baseclasses.ArrayWithAxes):
         fminus = axes[axis].min()
         #freq_window = 2*numpy.max( (fplus, -fminus) ) #-axes[axis].min()
         freq_window = fplus - fminus
-        df=numpy.min(numpy.abs(numpy.diff(axes[axis])))
+        dfs = numpy.abs(numpy.diff(axes[axis]))
+        dfs = dfs[numpy.isfinite(dfs)*(dfs>0)]
+        df=numpy.min(dfs)
         nsamples=int(numpy.round(freq_window/df))+1
         
         if n is None: n=nsamples
@@ -1837,7 +1839,8 @@ class Spectrum(baseclasses.ArrayWithAxes):
         ### Maintain same spectral power in spite of interpolation
         pow1 = self.power.integrate_axis(axis=axis)
         pow2 = fftconsistent_self.power.integrate_axis(axis=axis)
-        fftconsistent_self *= numpy.sqrt( pow1 / pow2 )
+        bcast_shape = list(fftconsistent_self.shape); bcast_shape[axis]=1
+        fftconsistent_self *= numpy.sqrt( pow1 / pow2 ).reshape(bcast_shape)
         self.fftconsistent_self=fftconsistent_self
         
         ###Pack up into "standard" fft packing###
