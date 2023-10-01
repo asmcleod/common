@@ -92,6 +92,35 @@ def unpickle_legacy(filename):
             
         return d
 
+def getsize(obj):
+    """Get the sum size of an object & its members (methods, attributes).
+    Adapted from:
+        https://stackoverflow.com/questions/449560/how-do-i-determine-the-size-of-an-object-in-python"""
+
+    import sys
+    from types import ModuleType, FunctionType
+    from gc import get_referents
+
+    # Custom objects know their class.
+    # Function objects seem to know way too much, including modules.
+    # Exclude modules as well.
+    BLACKLIST = type, ModuleType, FunctionType
+
+    if isinstance(obj, BLACKLIST):
+        raise TypeError('getsize() does not take argument of type: ' + str(type(obj)))
+    seen_ids = set()
+    size = 0
+    objects = [obj]
+    while objects:
+        need_referents = []
+        for obj in objects:
+            if not isinstance(obj, BLACKLIST) and id(obj) not in seen_ids:
+                seen_ids.add(id(obj))
+                size += sys.getsizeof(obj)
+                need_referents.append(obj)
+        objects = get_referents(*need_referents)
+    return size
+
 def is_interactive(): return sys.stdin.isatty() and sys.stdout.isatty()
 
 def all_indices(a, b):

@@ -467,6 +467,53 @@ def weights_matrix(x_query, X, alpha):
 
   return np.mat(W)
 
+def ExponentialsFit_GPOF(func,xmax,N, Npoles=None, **kwargs):
+    """
+    Fit a univariate `func` on the interval (0,xmax) with a sum of `N` complex exponentials:
+        $func(x) ~ \sum_i^N  R_i \exp( -s_i * x)$
+    where `R` are residues and `s` are the (complex) exponential constants
+    (these are also called "poles" of the Laplace transform of `func`).
+
+    This solution implements the "generalized pencil-of-function" (GPOF) method:
+    https://en.wikipedia.org/wiki/Generalized_pencil-of-function_method
+
+    Returns: `s, R`, each a complex-valued array of length N.
+    """
+
+    shape_parameter=0.5 #We don't yet know how to solve generalized eigenvalue problem with non-square matrices Y1, Y2
+
+    dx = xmax / N
+    xs = dx * (1 + np.arange(N))
+    L = int(N * shape_parameter)
+    ys = func(xs,**kwargs)
+
+    Y1_inds = np.arange(N - L)[:, np.newaxis] + np.arange(L)[np.newaxis, :]
+    Y1 = ys[Y1_inds.astype(int)]
+    Y2 = ys[Y1_inds.astype(int) + 1]
+    from scipy.linalg import eig, pinv
+    from scipy.sparse.linalg import eigs
+
+    if Npoles is not None:
+        assert Npoles <= N
+        zs = eigs(A=Y2, k=Npoles, M=Y1,
+                 return_eigenvectors=False,which='SM') # find poles of smallest magnitude, these are the ones that are slowly varying
+    else:
+        zs = eig(a=Y2, b=Y1)[0]
+    zs = sorted(zs[np.abs(zs)<1],key=lambda z: np.abs(z)) #Remove out the unphysical (noise?) poles and sort
+    zs = np.array(zs)
+
+    Zlstsq = (zs[np.newaxis, :]) ** (np.arange(N)[:, np.newaxis])
+    Rs = pinv(Zlstsq) @ np.matrix(ys).T
+    Rs = np.array(Rs).squeeze()
+
+    #--- Sort the poles and residues by increasing residue amplitude
+    Rs_sorted, zs_sorted = zip(*sorted(zip(Rs, zs), key=lambda tup: 1 / np.abs(tup[0])))
+    Rs_sorted = np.array(Rs_sorted)
+    zs_sorted = np.array(zs_sorted)
+    ss_sorted = -np.log(zs_sorted) * 1/dx #Restore the unit value
+
+    return ss_sorted,Rs_sorted
+
 def ParameterFit(xs,ys,model_func,params0,\
                  limits=None,relative_error=False,\
                  verbose=False,error_exp=2,limit_sharpness=10,\

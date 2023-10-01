@@ -289,7 +289,7 @@ try:
     import numpy
     
     ###Define valid number types###
-    number_types=(int,int,float,numpy.int32,numpy.int64,numpy.float,numpy.float32,numpy.float64)
+    number_types=(int,float,complex,numpy.int32,numpy.int64,numpy.float32,numpy.float64,numpy.complex64)
     if 'float128' in dir(numpy): number_types+=(numpy.float128,)
 
     class LabeledBaseClass: pass
@@ -1455,7 +1455,7 @@ try:
                 xaxis_addition.resize((len(xaxis_addition),1))
                 newarr=numpy.hstack((xaxis_addition,newarr))
                 
-                yaxis_addition=numpy.array([None]+list(self.axes[1])).astype(numpy.float)
+                yaxis_addition=numpy.array([None]+list(self.axes[1])).astype(float)
                 yaxis_addition.resize((1,len(yaxis_addition)))
                 newarr=numpy.vstack((yaxis_addition, newarr))
                 

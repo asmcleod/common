@@ -21,7 +21,7 @@ except ImportError:
 __module_name__=__name__
 
 deg2rad=numpy.pi/180
-number_types=(int,int,float,numpy.int32,numpy.int64,numpy.float,numpy.float32,numpy.float64,numpy.complex)
+number_types=(int,float,complex,numpy.int32,numpy.int64,numpy.float32,numpy.float64,numpy.complex64)
 if 'float128' in dir(numpy): number_types+=(numpy.float128,)
 if 'complex128' in dir(numpy): number_types+=(numpy.complex128,)
 
@@ -173,7 +173,7 @@ def cross_product_matrix(vec):
     from numpy.linalg import norm
     
     vec=numpy.array(vec)
-    vecNorm=numpy.float(norm(vec))
+    vecNorm=float(norm(vec))
     vecHat=vec/vecNorm
     
     I=numpy.matrix(numpy.eye(3))
