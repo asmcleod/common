@@ -263,7 +263,7 @@ def GetQuadrature(N=72,xmin=1e-3,xmax=numpy.inf,\
         xs=numpy.array(xs)
         weights=numpy.array(weights)
         #@bug: mpmath 0.17 has a bug whereby TS weights are overly large
-        if quadrature is TS: weights*=3.85129641897025/numpy.float(len(weights))
+        if quadrature is TS: weights*=3.85129641897025/float(len(weights))
         
     else:
         span=xmax-xmin
@@ -507,7 +507,8 @@ def ExponentialsFit_GPOF(func,xmax,N, Npoles=None, **kwargs):
     Rs = np.array(Rs).squeeze()
 
     #--- Sort the poles and residues by increasing residue amplitude
-    Rs_sorted, zs_sorted = zip(*sorted(zip(Rs, zs), key=lambda tup: 1 / np.abs(tup[0])))
+    Rs_sorted, zs_sorted = zip(*sorted(zip(Rs, zs),
+                                       key=lambda tup: 1 / np.abs(tup[0])))
     Rs_sorted = np.array(Rs_sorted)
     zs_sorted = np.array(zs_sorted)
     ss_sorted = -np.log(zs_sorted) * 1/dx #Restore the unit value
@@ -859,7 +860,7 @@ def RadialAverageOfImage(image,Nthetas=200,NRs=200,**kwargs):
     
     return image_theta
 
-def PolynomialFitImage(image,order=3,\
+def PolynomialFitImage(image,mask=None,order=3,\
                        full_output=False):
     
     image=AWA(image)
@@ -867,13 +868,17 @@ def PolynomialFitImage(image,order=3,\
     
     X,Y=image.axis_grids
     B=image.flatten()
+
+    if mask is None: mask = 1+np.zeros(image.shape)
+    mask_flat = np.asarray(mask).flatten().astype(bool)
+    B=B[mask_flat]
     
     #Generate bases of the 2-dimensional polynomial
     bases=[]
     for n in range(order+1):
         for i in range(n+1):
             bases.append(X**(n-i)*Y**i)
-    A=np.array([basis.flatten() for basis in bases]).T
+    A=np.array([basis.flatten()[mask_flat] for basis in bases]).T
     
     coeffs, r, rank, s = np.linalg.lstsq(A, B)
     
@@ -991,7 +996,7 @@ class QuickConvolver(object):
     
     image_pad_mult=np.array([[1,-1,1],
                              [-1,1,-1],
-                             [1,-1,1]])
+                             [1,-1,1]],dtype=np.float32)
     image_types=('mirror_inv','image','images')
     mirror_types = ('mirror',)+image_types
     
@@ -999,12 +1004,17 @@ class QuickConvolver(object):
                  size=(1,1),
                  pad_by=0,
                  pad_with=0,
-                 pad_mult=np.zeros((3,3))+1,
-                 kernel_function_fourier=None,\
+                 pad_mult=(np.zeros((3,3))+1).astype(np.float32),
+                 kernel_function_fourier=None,
                  kernel_function=None,
                  kernel=None,
                  xs=None,ys=None,
+                 dtype=np.float32,
+                 dtype_cmplx=np.complex64,
                  **kwargs):
+
+        self.dtype=dtype
+        self.dtype_cmplx=dtype_cmplx
         
         assert isinstance(pad_with,numbers.Number) \
                 or pad_with in self.mirror_types,\
@@ -1013,7 +1023,7 @@ class QuickConvolver(object):
         
         #--- Turn on "method of images"
         if pad_with in self.image_types: pad_mult=self.image_pad_mult
-        pad_mult=np.asarray(pad_mult,dtype=np.float64)
+        pad_mult=np.asarray(pad_mult,dtype=self.dtype)
         assert pad_mult.shape==(3,3),\
                 'Argument `pad_mult`=%s must be a 3x3 array!'%repr(pad_mult)
                 
@@ -1052,8 +1062,8 @@ class QuickConvolver(object):
         s_tile=np.full((s[0],dNy),const)*self.pad_mult[2,1]
         se_tile=np.full((dNx,dNy),const)*self.pad_mult[2,2]
         
-        return np.hstack((np.vstack((nw_tile,   n_tile,     ne_tile)),\
-                          np.vstack((w_tile,    arr,        e_tile)),\
+        return np.hstack((np.vstack((nw_tile,   n_tile,     ne_tile)),
+                          np.vstack((w_tile,    arr,        e_tile)),
                           np.vstack((sw_tile,   s_tile,     se_tile))))
         
     def pad_mirror(self,arr,dN):
@@ -1080,8 +1090,8 @@ class QuickConvolver(object):
         se_tile=arr[Nx-dNx:,Ny-dNy:]\
                     [::-1,::-1]*self.pad_mult[2,2]
         
-        return np.hstack((np.vstack((nw_tile,   n_tile,     ne_tile)),\
-                          np.vstack((w_tile,    arr,        e_tile)),\
+        return np.hstack((np.vstack((nw_tile,   n_tile,     ne_tile)),
+                          np.vstack((w_tile,    arr,        e_tile)),
                           np.vstack((sw_tile,   s_tile,     se_tile))))
     
     @classmethod
@@ -1108,22 +1118,22 @@ class QuickConvolver(object):
         dNx=int(np.ceil(pad_by_x*shape[0]))
         dNy=int(np.ceil(pad_by_y*shape[1]))
         self.dN=(dNx,dNy)
-        self.padded_shape=[N+2*dN for N,dN in zip(shape,\
+        self.padded_shape=[N+2*dN for N,dN in zip(shape,
                                                   (dNx,dNy))]
         
-        padded_size=(size[0]*self.padded_shape[0]/float(shape[0]),\
-                     size[1]*self.padded_shape[1]/float(shape[1]))
+        padded_size=(size[0]*self.padded_shape[0]/self.dtype(shape[0]),
+                     size[1]*self.padded_shape[1]/self.dtype(shape[1]))
         
         #We could use `pad_by` to extend range, but using dN values
         # ensures the point spacing remains the same, so the unpadded
         # part of the axes will remain unchanged.
         self.xs=np.linspace(-padded_size[0]/2.,padded_size[0]/2.,
-                            self.padded_shape[0])
+                            self.padded_shape[0],dtype=self.dtype)
         self.ys=np.linspace(-padded_size[1]/2.,padded_size[1]/2.,
-                            self.padded_shape[1])
+                            self.padded_shape[1],dtype=self.dtype)
         
-        self.dx=padded_size[0]/float(self.padded_shape[0])
-        self.dy=padded_size[1]/float(self.padded_shape[1])
+        self.dx=self.dtype(padded_size[0]/self.padded_shape[0])
+        self.dy=self.dtype(padded_size[1]/self.padded_shape[1])
         
     def norm_fourier(self,kernel_fourier):
         
@@ -1165,7 +1175,7 @@ class QuickConvolver(object):
         
         self.kernel_fourier=np.fft.fft(np.fft.fft(rolled_kernel,\
                                                   axis=0),\
-                                       axis=1)
+                                       axis=1).astype(self.dtype_cmplx)
         self.kernel_fourier=self.norm_fourier(self.kernel_fourier)
     
     def recompute_kernel(self,shape,
@@ -1196,7 +1206,8 @@ class QuickConvolver(object):
                               -y_0pos,axis=1)
         self.rolled_kernel=rolled_kernel
         
-        self.kernel_fourier=np.fft.fft(np.fft.fft(rolled_kernel,axis=0),axis=1)
+        self.kernel_fourier=np.fft.fft(np.fft.fft(rolled_kernel,axis=0),
+                                       axis=1).astype(self.dtype_cmplx)
         self.kernel_fourier=self.norm_fourier(self.kernel_fourier)
         
     def recompute_kernel_fourier(self,shape,
@@ -1213,8 +1224,8 @@ class QuickConvolver(object):
         self.set_axes(shape,size)
         Nx,Ny=self.padded_shape
         
-        kxs=2*np.pi*np.fft.fftfreq(Nx,self.dx)
-        kys=2*np.pi*np.fft.fftfreq(Ny,self.dy)
+        kxs=2*np.pi*np.fft.fftfreq(Nx,self.dx).astype(self.dtype)
+        kys=2*np.pi*np.fft.fftfreq(Ny,self.dy).astype(self.dtype)
         
         kxs_grid=kxs.reshape((len(kxs),1))
         kys_grid=kys.reshape((1,len(kys)))
@@ -1243,7 +1254,7 @@ class QuickConvolver(object):
         im_fourier=np.fft.fft(np.fft.fft(self.im_padded,axis=0),axis=1)
         mult=im_fourier*self.kernel_fourier
         
-        result = np.fft.ifft(np.fft.ifft(mult,axis=0),axis=1)
+        result = np.fft.ifft(np.fft.ifft(mult,axis=0),axis=1).astype(self.dtype_cmplx)
         
         #case to real if neither kernel nor image were complex
         if not np.iscomplexobj(self.kernel_fourier) and not np.iscomplexobj(im): result=result.real
@@ -1278,12 +1289,12 @@ class AffineXform(object):
     def __init__(self,pts1,pts2):
     
         xs1,ys1=list(zip(*pts1))
-        self.xs1=numpy.array(xs1).astype(numpy.float)
-        self.ys1=numpy.array(ys1).astype(numpy.float)
+        self.xs1=numpy.array(xs1).astype(float)
+        self.ys1=numpy.array(ys1).astype(float)
         
         xs2,ys2=list(zip(*pts2))
-        self.xs2=numpy.array(xs2).astype(numpy.float)
-        self.ys2=numpy.array(ys2).astype(numpy.float)
+        self.xs2=numpy.array(xs2).astype(float)
+        self.ys2=numpy.array(ys2).astype(float)
         
         centerx1=numpy.mean(xs1)
         centery1=numpy.mean(ys1)
@@ -1476,7 +1487,7 @@ def AffineGridsFromFeaturePoints(ref_pt_pairs,\
                 #Progress
                 t=time.time()
                 if t-t0>1:
-                    progress=(n*len(xs)*len(ys)+i*len(ys)+j)/numpy.float(Ntargets*len(xy_pts))*100
+                    progress=(n*len(xs)*len(ys)+i*len(ys)+j)/float(Ntargets*len(xy_pts))*100
                     Logger.write('\tProgress: %1.1f%%...'%progress)
                     t0=t
             
@@ -1532,7 +1543,7 @@ def InterpolateImageToAffineGrid(image,grid_pts,\
             interpolated[i,j]=Interp(*args)
             t=time.time()
             if t-t0>1:
-                progress=(i*Ny+1)/numpy.float(Nx*Ny)*100
+                progress=(i*Ny+1)/float(Nx*Ny)*100
                 Logger.write('\tProgress: %1.1f%%'%progress)
                 t0=t
             
@@ -1663,7 +1674,7 @@ def Synchronize2DImages(images,within_pts=True,fontsize=14,prefer_BC=False,cmap=
 import numpy as np
 from math import pi, log
 import pylab
-from scipy import fft, ifft
+from scipy.fft import fft, ifft
 from scipy.optimize import curve_fit
     
     
@@ -2014,3 +2025,19 @@ def nearestPD(A):
         k += 1
 
     return A3
+
+def nearestUnitary(A):
+    """ Calculate the unitary matrix U that is closest with respect to the
+        operator norm distance to the general matrix A.
+
+        Return U as a numpy matrix.
+
+        sources:
+            https://michaelgoerz.net/notes/finding-the-closest-unitary-for-a-given-matrix/
+            J. Keller, Mathematics Magazine, Vol. 48, No. 4 (Sep., 1975), pp. 192-197
+
+    """
+    from scipy.linalg import svd
+    V, __, Wh = svd(A)
+    U = np.matrix(V.dot(Wh))
+    return U

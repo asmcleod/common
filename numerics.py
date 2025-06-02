@@ -1463,7 +1463,7 @@ class Spectrum(baseclasses.ArrayWithAxes):
                 interpolator=interp1d(axes[axis],source,axis=axis)
                 
                 ##Produce homogeneous axis, interpolate across it, and store it##
-                homog_axis=numpy.linspace(axes[axis][0],axes[axis][-1],len(axes[axis]))
+                homog_axis=numpy.linspace(numpy.min(axes[axis]),numpy.max(axes[axis]),len(axes[axis]))
                 source=interpolator(homog_axis)
                 axes[axis]=homog_axis
             
@@ -1504,6 +1504,15 @@ class Spectrum(baseclasses.ArrayWithAxes):
             # identically between the function and its spectrum inside their 
             # respective integration domains
             spectrum*=cls.parseval_consistent_prefactor(dt)
+
+            #Restore overall phase information coming from the offset position of the signal abscissa
+            x0 = axes[axis][0]
+            # normal FFT has used integral variable `X=(x-x0)`;
+            # proper integral is the FFT result multiplied by `exp(1j*2*pi*f * -x0)`
+            phase_factor = numpy.exp(-1j*2*numpy.pi*frequencies*x0)
+            # Make phase factor same size as spectrum
+            newshape = [1]*spectrum.ndim; newshape[axis]=len(phase_factor)
+            spectrum *= phase_factor.reshape(newshape)
             
             #This additional normalization will make the spectrum
             # describe the amplitude of power spectral density per
@@ -1818,6 +1827,7 @@ class Spectrum(baseclasses.ArrayWithAxes):
                                     'or axis name.', exception=ValueError)
         
         ###First interpolate back to FFT-consistent axis values###
+        # This means filling non-existent negative frequency entries with duplicates from positive values
         fplus = axes[axis].max()
         fminus = axes[axis].min()
         #freq_window = 2*numpy.max( (fplus, -fminus) ) #-axes[axis].min()
@@ -1839,8 +1849,13 @@ class Spectrum(baseclasses.ArrayWithAxes):
         ### Maintain same spectral power in spite of interpolation
         pow1 = self.power.integrate_axis(axis=axis)
         pow2 = fftconsistent_self.power.integrate_axis(axis=axis)
-        bcast_shape = list(fftconsistent_self.shape); bcast_shape[axis]=1
-        fftconsistent_self *= numpy.sqrt( pow1 / pow2 ).reshape(bcast_shape)
+        norm_factor = numpy.sqrt( pow1 / pow2 )
+        if norm_factor.ndim>0:
+            bcast_shape = list(fftconsistent_self.shape); bcast_shape[axis]=1
+            norm_factor = norm_factor.reshape(bcast_shape) # If we have extra axes, make sure we have broadcastable shape
+            norm_factor[numpy.isnan(norm_factor)] = 0
+        elif numpy.isnan(norm_factor): norm_factor=0
+        fftconsistent_self *= norm_factor
         self.fftconsistent_self=fftconsistent_self
         
         ###Pack up into "standard" fft packing###
